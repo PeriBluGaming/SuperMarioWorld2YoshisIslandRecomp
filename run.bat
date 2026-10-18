@@ -2,7 +2,7 @@
 setlocal
 title Super Mario World 2: Yoshi's Island (SNESRecomp Native AOT)
 echo =================================================================
-echo   Super Mario World 2: Yoshi's Island - 1:1 Static Recompilation
+echo   Super Mario World 2: Yoshi's Island - Native recomp-ui Host
 echo =================================================================
 echo Controls:
 echo   W / A / S / D or Arrows : D-Pad (Walk, Aim Up, Crouch)
@@ -20,9 +20,21 @@ echo   Direct plug-and-play support for Xbox / PlayStation controllers!
 echo =================================================================
 echo.
 
-if not exist "yoshis_island_recomp.exe" (
-    echo Error: yoshis_island_recomp.exe not found! Running build.bat...
+set "EXE_PATH="
+if exist "build\YoshisIslandRecomp.exe" set "EXE_PATH=build\YoshisIslandRecomp.exe"
+if not defined EXE_PATH if exist "build\yoshis_island_recomp.exe" set "EXE_PATH=build\yoshis_island_recomp.exe"
+if not defined EXE_PATH if exist "YoshisIslandRecomp.exe" set "EXE_PATH=YoshisIslandRecomp.exe"
+if not defined EXE_PATH if exist "yoshis_island_recomp.exe" set "EXE_PATH=yoshis_island_recomp.exe"
+
+if not defined EXE_PATH (
+    echo Executable not found. Running build.bat...
     call build.bat
+    if exist "build\YoshisIslandRecomp.exe" set "EXE_PATH=build\YoshisIslandRecomp.exe"
 )
 
-start "" yoshis_island_recomp.exe "Super Mario World 2 - Yoshi's Island (USA).sfc"
+if defined EXE_PATH (
+    start "" "%EXE_PATH%" %*
+) else (
+    echo Error: Could not locate YoshisIslandRecomp.exe!
+    pause
+)

@@ -1,0 +1,50 @@
+{
+  "name": "YoshisIslandRecomp",
+  "version": "v0.1.0-preview",
+  "platform": "windows-x64",
+  "build_type": "Release",
+  "toolchain": "MinGW-w64 GCC 16.1.0",
+  "ui_framework": "recomp-ui (Dear ImGui)",
+  "game": {
+    "title": "Super Mario World 2: Yoshi's Island",
+    "platform": "Super Nintendo Entertainment System (SNES)",
+    "coprocessor": "Super FX (GSU-2)",
+    "region": "USA",
+    "supported_roms": [
+      {
+        "format": "Headerless (.sfc)",
+        "size_bytes": 2097152,
+        "sha256": "9b4957466798bbdb5b43a450bbb60b2591ae81d95b891430f62d53ca62e8bc7b",
+        "crc32": "D138F224"
+      },
+      {
+        "format": "Copier-Headered (.smc)",
+        "size_bytes": 2097664,
+        "header_bytes": 512,
+        "payload_sha256": "9b4957466798bbdb5b43a450bbb60b2591ae81d95b891430f62d53ca62e8bc7b",
+        "payload_crc32": "D138F224"
+      }
+    ]
+  },
+  "package_files": [
+    "YoshisIslandRecomp.exe",
+    "SDL2.dll",
+    "assets/fonts/LatoLatin-Bold.ttf",
+    "assets/fonts/LatoLatin-Regular.ttf",
+    "assets/fonts/NotoSansSymbols2-Regular.ttf",
+    "assets/fonts/OpenMoji-black-glyf.ttf",
+    "assets/img/brand_mark.tga",
+    "assets/img/flags.png",
+    "assets/img/pad.tga",
+    "assets/img/verdict_bad.tga",
+    "assets/img/verdict_none.tga",
+    "assets/img/verdict_ok.tga",
+    "assets/img/verdict_warn.tga",
+    "config.ini",
+    "keybinds.ini",
+    "manifest.json",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ]
+}

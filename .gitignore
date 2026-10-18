@@ -43,6 +43,11 @@ yi.sfc
 *.sav
 *.state*
 save.srm
+saves/
+rom.cfg
+
+# Release packages
+*.zip
 
 # Debug dumps, temporary images and logs
 *.ppm
