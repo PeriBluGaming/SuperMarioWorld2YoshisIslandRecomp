@@ -13,6 +13,7 @@
 #include <SDL.h>
 
 #include "game_rtl.h"
+#include "yi_widescreen.h"
 #include "common_rtl.h"
 #include "cpu_state.h"
 #include "snes/snes.h"
@@ -22,6 +23,8 @@
 #include "snes/apu.h"
 #include "snes/dsp.h"
 #include "snes/interp_bridge.h"
+#include "widescreen.h"
+#include "desktop/display_aspect.h"
 
 #ifdef RECOMP_LAUNCHER
 #include "recomp_launcher.h"
@@ -32,7 +35,6 @@
 #include "keybinds.h"
 #include "crc32.h"
 #include "sha256.h"
-#include "desktop/display_aspect.h"
 #include "desktop/launcher_video.h"
 #endif
 
@@ -57,6 +59,23 @@ static void cleanup_timer_precision(void) {
 
 struct SpcPlayer *g_spc_player = NULL;
 bool g_new_ppu = true;
+
+/* Shared widescreen contract (see widescreen.h): defined per game. Phase 1 is
+ * presentation-only; no game logic reads these yet. */
+bool g_ws_active = false;
+int g_ws_extra = 0;
+
+/* EXPERIMENTAL video options, both off by default:
+ *   [Graphics] Widescreen  = 1  render extra world columns for a 16:9 picture
+ *   [Graphics] NewRenderer = 1  use the runner's span renderer instead of the
+ *                               legacy per-pixel one (independent of Widescreen)
+ *   [Graphics] WidescreenSprites = 1  draw sprites the game culls at the
+ *                               native edge into the margins (default on,
+ *                               only effective with Widescreen)
+ * SNESRECOMP_WS_EXTRA=<px> pins the per-side margin regardless of both. */
+static bool s_widescreen = false;
+static bool s_new_renderer = false;
+static bool s_widescreen_sprites = true;
 
 static const uint8_t kExpectedSha256[32] = {
     0x9b, 0x49, 0x57, 0x46, 0x67, 0x98, 0xbb, 0xdb,
@@ -572,6 +591,12 @@ static void load_launcher_settings(RecompLauncherCSettings *settings, const char
     uint8_t asp = 0;
     if (SnesDisplayAspect_Parse(str, &asp)) settings->aspect_index = asp;
   }
+  if (ini_read_int(cfg_path, "Graphics", "Widescreen", &val))
+    settings->widescreen = val != 0;
+  if (ini_read_int(cfg_path, "Graphics", "NewRenderer", &val))
+    s_new_renderer = val != 0;
+  if (ini_read_int(cfg_path, "Graphics", "WidescreenSprites", &val))
+    s_widescreen_sprites = val != 0;
 
   if (ini_read_int(cfg_path, "Sound", "Volume", &val) && val >= 0 && val <= 100)
     settings->volume = val;
@@ -599,6 +624,12 @@ static void save_launcher_settings(const RecompLauncherCSettings *settings, cons
   launcher_ini_kv_write(cfg_path, "Graphics", "LinearFiltering", buf);
   snprintf(buf, sizeof(buf), "%s", SnesDisplayAspect_Name(settings->aspect_index));
   launcher_ini_kv_write(cfg_path, "Graphics", "DisplayAspect", buf);
+  snprintf(buf, sizeof(buf), "%d", settings->widescreen ? 1 : 0);
+  launcher_ini_kv_write(cfg_path, "Graphics", "Widescreen", buf);
+  snprintf(buf, sizeof(buf), "%d", s_new_renderer ? 1 : 0);
+  launcher_ini_kv_write(cfg_path, "Graphics", "NewRenderer", buf);
+  snprintf(buf, sizeof(buf), "%d", s_widescreen_sprites ? 1 : 0);
+  launcher_ini_kv_write(cfg_path, "Graphics", "WidescreenSprites", buf);
 
   snprintf(buf, sizeof(buf), "%d", settings->volume);
   launcher_ini_kv_write(cfg_path, "Sound", "Volume", buf);
@@ -683,7 +714,7 @@ static int run_launcher_flow(int argc, char **argv, const char *cli_rom_override
   game.has_expected_crc = 1;
   game.expected_crc = EXPECTED_CRC32;
   game.num_players = 1;
-  game.widescreen_supported = 0;
+  game.widescreen_supported = 1; /* EXPERIMENTAL 16:9 toggle */
 
   static const char *const kAspectLabels[] = {
       "4:3 (CRT)",
@@ -887,13 +918,30 @@ int main(int argc, char **argv) {
   if (g_settings.aspect_index >= 0 && g_settings.aspect_index <= 2) aspect = g_settings.aspect_index;
   fullscreen = g_settings.fullscreen != 0;
   linear_filter = g_settings.linear_filter != 0;
+  s_widescreen = g_settings.widescreen != 0;
 #endif
 
-  int pres_w = 298, pres_h = 224;
-  if (aspect == 1) pres_w = 256;      /* 8:7 square pixels */
-  else if (aspect == 2) pres_w = 224; /* 1:1 square frame */
+  /* Frame width: the authentic 256 columns plus g_ws_extra per side. The
+   * margin keeps the selected pixel aspect and targets a 16:9 picture
+   * (4:3 -> 43px, 8:7 -> 71px, 1:1 -> 100px per side). */
+  int ws_extra = 0;
+  if (s_widescreen) {
+    SnesDisplayFrame wide = SnesDisplayAspect_ComputeAdaptiveFrame(
+        256, 224, kPpuBufWidth, 16.0 / 9.0, (SnesDisplayAspect)aspect);
+    ws_extra = wide.extra;
+  }
+  if (PpuWsExtraOverride() >= 0) ws_extra = PpuWsExtraOverride();
+  g_ws_extra = ws_extra;
+  g_ws_active = ws_extra > 0;
+  const int frame_w = 256 + 2 * g_ws_extra;
+  const int frame_h = 224;
+  const int frame_pitch = frame_w * 4;
 
-  int win_w = (aspect == 0) ? ((256 * scale * 7 + 3) / 6) : (pres_w * scale);
+  int par_num, par_den;
+  SnesDisplayAspect_GetPixelAspect((SnesDisplayAspect)aspect, &par_num, &par_den);
+  int pres_w = frame_w * par_num / par_den, pres_h = frame_h;
+
+  int win_w = (aspect == 0) ? ((frame_w * scale * 7 + 3) / 6) : (pres_w * scale);
   int win_h = pres_h * scale;
 
   Uint32 win_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
@@ -927,14 +975,22 @@ int main(int argc, char **argv) {
     renderer,
     SDL_PIXELFORMAT_BGRA32,
     SDL_TEXTUREACCESS_STREAMING,
-    256, 224
+    frame_w, frame_h
   );
   if (texture) {
     SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_NONE);
   }
 
-  static uint8_t fb_pixels[256 * 4 * 256];
-  PpuBeginDrawing(g_ppu, fb_pixels, 256 * 4, 0);
+  /* 240 rows covers the overscan field; the renderer writes row (line - 1). */
+  uint8_t *fb_pixels = (uint8_t *)calloc((size_t)frame_pitch * 240, 1);
+  if (!fb_pixels) Die("Out of memory allocating framebuffer");
+  PpuBeginDrawing(g_ppu, fb_pixels, frame_pitch,
+                  s_new_renderer ? kPpuRenderFlags_NewRenderer : 0);
+  PpuSetExtraSpace(g_ppu, (uint16_t)g_ws_extra);
+  YiWidescreenSetSpritesEnabled(s_widescreen_sprites);
+  printf("[Video] %dx%d frame (%d px/side extra), %s renderer, aspect %s, margin sprites %s\n",
+         frame_w, frame_h, g_ws_extra, s_new_renderer ? "new" : "legacy",
+         SnesDisplayAspect_Name(aspect), s_widescreen_sprites ? "on" : "off");
 
   int audio_rate = 44100;
 #ifdef RECOMP_LAUNCHER
@@ -1009,12 +1065,23 @@ int main(int argc, char **argv) {
     const uint8_t *key_states = SDL_GetKeyboardState(NULL);
     update_keyboard(key_states);
 
+    /* ppu_reset clears the margin, so re-apply it (and the per-layer
+     * widescreen policy) before every frame. */
+    YiWidescreenBeginFrame();
+
     /* Run one full hardware frame (262 scanlines, AOT dispatched + SuperFX + PPU) */
     RtlRunFrame(s_pad_state);
     GameDrawPpuFrame();
 
-    /* Present active viewport */
-    SDL_UpdateTexture(texture, NULL, fb_pixels, 256 * 4);
+    /* Present active viewport (RtlWidescreenPresent also honours the
+     * SNESRECOMP_FRAME_BMP* debug captures). */
+    void *tex_pixels;
+    int tex_pitch;
+    if (texture && SDL_LockTexture(texture, NULL, &tex_pixels, &tex_pitch) == 0) {
+      RtlWidescreenPresent((uint8_t *)tex_pixels, (size_t)tex_pitch, fb_pixels,
+                           frame_w, frame_h);
+      SDL_UnlockTexture(texture);
+    }
     SDL_RenderClear(renderer);
     SDL_RenderCopy(renderer, texture, NULL, NULL);
     SDL_RenderPresent(renderer);
@@ -1075,6 +1142,7 @@ int main(int argc, char **argv) {
     g_audiobuffer = NULL;
   }
   if (texture) SDL_DestroyTexture(texture);
+  free(fb_pixels);
   if (renderer) SDL_DestroyRenderer(renderer);
   if (window) SDL_DestroyWindow(window);
   SDL_Quit();

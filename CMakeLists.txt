@@ -74,7 +74,7 @@ endif()
 
 # Interactive Player Target
 if(YI_BUILD_PLAY)
-  add_executable(yoshis_island_recomp src/desktop.c src/game_rtl.c ${SNESRECOMP_RUNNER_SOURCES})
+  add_executable(yoshis_island_recomp src/desktop.c src/game_rtl.c src/yi_widescreen.c ${SNESRECOMP_RUNNER_SOURCES})
   # GUI subsystem: no console window behind the SDL game window.
   set_target_properties(yoshis_island_recomp PROPERTIES
     WIN32_EXECUTABLE TRUE

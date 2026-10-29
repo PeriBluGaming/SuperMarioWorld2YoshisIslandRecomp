@@ -16,6 +16,8 @@
 #define SCANLINES_PER_FRAME 262u
 #define MASTER_CYCLES_PER_FRAME (SCANLINES_PER_FRAME * MASTER_CYCLES_PER_LINE)
 
+void (*g_yi_ppu_line_hook)(int line);
+
 static uint32_t resume_pc;
 static uint64_t s_frame_base_clock;
 static int parked;
@@ -130,6 +132,7 @@ void GameRunOneFrame(void) {
       /* Advance beam to active display area (before HBlank HDMA at h=1024) */
       uint64_t active_deadline = s_frame_base_clock + (uint64_t)line * MASTER_CYCLES_PER_LINE + 1000;
       run_scanline(active_deadline);
+      if (g_yi_ppu_line_hook) g_yi_ppu_line_hook((int)line);
       ppu_runLine(g_ppu, (int)line);
     }
 
